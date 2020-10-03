@@ -380,6 +380,7 @@ coord
 coordnew
 COPYCOLOR
 CORESYSTEM
+corewrappers
 cotaskmem
 countof
 cout
@@ -2536,6 +2537,7 @@ VFT
 vga
 vgaoem
 viewkind
+viewmanagement
 viewports
 Virt
 VIRTTERM
@@ -2543,6 +2545,7 @@ Virtualizing
 vk
 vkey
 VKKEYSCAN
+vm
 VMs
 VPA
 VPATH
