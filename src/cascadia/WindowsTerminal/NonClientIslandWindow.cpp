@@ -263,9 +263,9 @@ void NonClientIslandWindow::SetTitlebarContent(winrt::Windows::UI::Xaml::UIEleme
 // - the height of the border above the title bar or 0 if it's disabled
 int NonClientIslandWindow::_GetTopBorderHeight() const noexcept
 {
-    // No border when maximized, or when the titlebar is invisible (by being in
-    // fullscreen or focus mode).
-    if (_isMaximized || (!_IsTitlebarVisible()))
+    // No border when maximized or fullscreen.
+    // Yet we still need it in the focus mode to allow dragging (GH#7012)
+    if (_isMaximized || _fullscreen)
     {
         return 0;
     }
@@ -370,7 +370,7 @@ void NonClientIslandWindow::_UpdateIslandPosition(const UINT windowWidth, const 
                                    newIslandPos.Y,
                                    windowWidth,
                                    windowHeight - topBorderHeight,
-                                   SWP_SHOWWINDOW));
+                                   SWP_SHOWWINDOW | SWP_NOACTIVATE));
 
     // This happens when we go from maximized to restored or the opposite
     // because topBorderHeight changes.
@@ -514,6 +514,32 @@ int NonClientIslandWindow::_GetResizeHandleHeight() const noexcept
     params->rgrc[0] = newSize;
 
     return 0;
+}
+
+// Method Description:
+// - Responds to the WM_NCACTIVATE message by changing the focus state of
+//   the window.
+[[nodiscard]] LRESULT NonClientIslandWindow::_OnFocusChanged(const WPARAM wParam, const LPARAM lParam) noexcept
+{
+    const auto windowStyle = GetWindowStyle(_window.get());
+    const auto isIconified = WI_IsFlagSet(windowStyle, WS_ICONIC);
+
+    if (isIconified)
+    {
+        return DefWindowProc(_window.get(), WM_NCACTIVATE, wParam, lParam);
+    }
+
+    if (_titlebar)
+    {
+        _isFocused = wParam;
+        try
+        {
+            _titlebar.Focused(_isFocused);
+        }
+        CATCH_LOG();
+    }
+
+    return TRUE;
 }
 
 // Method Description:
@@ -689,6 +715,8 @@ void NonClientIslandWindow::_UpdateFrameMargins() const noexcept
         return 0;
     case WM_NCCALCSIZE:
         return _OnNcCalcSize(wParam, lParam);
+    case WM_NCACTIVATE:
+        return _OnFocusChanged(wParam, lParam);
     case WM_NCHITTEST:
         return _OnNcHitTest({ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) });
     case WM_PAINT:
@@ -849,7 +877,7 @@ void NonClientIslandWindow::_SetIsBorderless(const bool borderlessEnabled)
                  windowPos.top<int>(),
                  windowPos.width<int>(),
                  windowPos.height<int>(),
-                 SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+                 SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOACTIVATE);
 }
 
 // Method Description:

@@ -1210,7 +1210,14 @@ void SCREEN_INFORMATION::_InternalSetViewportSize(const COORD* const pcoordSize,
     }
 
     // Bottom and right cannot pass the final characters in the array.
-    srNewViewport.Right = std::min(srNewViewport.Right, gsl::narrow<SHORT>(coordScreenBufferSize.X - 1));
+    const SHORT offRightDelta = srNewViewport.Right - (coordScreenBufferSize.X - 1);
+    if (offRightDelta > 0) // the viewport was off the right of the buffer...
+    {
+        // ...so slide both left/right back into the buffer. This will prevent us
+        // from having a negative width later.
+        srNewViewport.Right -= offRightDelta;
+        srNewViewport.Left = std::max<SHORT>(0, srNewViewport.Left - offRightDelta);
+    }
     srNewViewport.Bottom = std::min(srNewViewport.Bottom, gsl::narrow<SHORT>(coordScreenBufferSize.Y - 1));
 
     // See MSFT:19917443
@@ -2139,7 +2146,7 @@ void SCREEN_INFORMATION::SetViewport(const Viewport& newViewport,
     }
 
     // do adjustments on a copy that's easily manipulated.
-    SMALL_RECT srCorrected = newViewport.ToInclusive();
+    SMALL_RECT srCorrected = newViewport.ToExclusive();
 
     if (srCorrected.Left < 0)
     {
@@ -2153,16 +2160,16 @@ void SCREEN_INFORMATION::SetViewport(const Viewport& newViewport,
     }
 
     const COORD coordScreenBufferSize = GetBufferSize().Dimensions();
-    if (srCorrected.Right >= coordScreenBufferSize.X)
+    if (srCorrected.Right > coordScreenBufferSize.X)
     {
         srCorrected.Right = coordScreenBufferSize.X;
     }
-    if (srCorrected.Bottom >= coordScreenBufferSize.Y)
+    if (srCorrected.Bottom > coordScreenBufferSize.Y)
     {
         srCorrected.Bottom = coordScreenBufferSize.Y;
     }
 
-    _viewport = Viewport::FromInclusive(srCorrected);
+    _viewport = Viewport::FromExclusive(srCorrected);
     if (updateBottom)
     {
         UpdateBottom();

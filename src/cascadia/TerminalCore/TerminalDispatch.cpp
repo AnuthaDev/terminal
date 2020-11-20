@@ -3,6 +3,9 @@
 
 #include "pch.h"
 #include "TerminalDispatch.hpp"
+#include "../../types/inc/utils.hpp"
+
+using namespace Microsoft::Console;
 using namespace ::Microsoft::Terminal::Core;
 using namespace ::Microsoft::Console::VirtualTerminal;
 
@@ -109,6 +112,13 @@ try
 }
 CATCH_LOG_RETURN_FALSE()
 
+bool TerminalDispatch::WarningBell() noexcept
+try
+{
+    return _terminalApi.WarningBell();
+}
+CATCH_LOG_RETURN_FALSE()
+
 bool TerminalDispatch::CarriageReturn() noexcept
 try
 {
@@ -143,6 +153,13 @@ bool TerminalDispatch::SetCursorStyle(const DispatchTypes::CursorStyle cursorSty
 try
 {
     return _terminalApi.SetCursorStyle(cursorStyle);
+}
+CATCH_LOG_RETURN_FALSE()
+
+bool TerminalDispatch::SetCursorColor(const DWORD color) noexcept
+try
+{
+    return _terminalApi.SetCursorColor(color);
 }
 CATCH_LOG_RETURN_FALSE()
 
@@ -354,42 +371,95 @@ bool TerminalDispatch::EnableAlternateScroll(const bool enabled) noexcept
     return true;
 }
 
-bool TerminalDispatch::SetPrivateModes(const gsl::span<const DispatchTypes::PrivateModeParams> params) noexcept
+bool TerminalDispatch::SetPrivateMode(const DispatchTypes::PrivateModeParams param) noexcept
 {
-    return _SetResetPrivateModes(params, true);
+    return _PrivateModeParamsHelper(param, true);
 }
 
-bool TerminalDispatch::ResetPrivateModes(const gsl::span<const DispatchTypes::PrivateModeParams> params) noexcept
+bool TerminalDispatch::ResetPrivateMode(const DispatchTypes::PrivateModeParams param) noexcept
 {
-    return _SetResetPrivateModes(params, false);
+    return _PrivateModeParamsHelper(param, false);
 }
 
-// Routine Description:
-// - Generalized handler for the setting/resetting of DECSET/DECRST parameters.
-//     All params in the rgParams will attempt to be executed, even if one
-//     fails, to allow us to successfully re/set params that are chained with
-//     params we don't yet support.
+// Method Description:
+// - Start a hyperlink
 // Arguments:
-// - params - array of params to set/reset
-// - enable - True for set, false for unset.
+// - uri - the hyperlink URI
+// - params - the optional custom ID
 // Return Value:
-// - True if ALL params were handled successfully. False otherwise.
-bool TerminalDispatch::_SetResetPrivateModes(const gsl::span<const DispatchTypes::PrivateModeParams> params, const bool enable) noexcept
+// - true
+bool TerminalDispatch::AddHyperlink(const std::wstring_view uri, const std::wstring_view params) noexcept
 {
-    // because the user might chain together params we don't support with params we DO support, execute all
-    // params in the sequence, and only return failure if we failed at least one of them
-    size_t failures = 0;
-    for (const auto& p : params)
+    return _terminalApi.AddHyperlink(uri, params);
+}
+
+// Method Description:
+// - End a hyperlink
+// Return Value:
+// - true
+bool TerminalDispatch::EndHyperlink() noexcept
+{
+    return _terminalApi.EndHyperlink();
+}
+
+// Method Description:
+// - Performs a ConEmu action
+// - Currently, the only action we support is setting the taskbar state/progress
+// Arguments:
+// - string: contains the parameters that define which action we do
+// Return Value:
+// - true
+bool TerminalDispatch::DoConEmuAction(const std::wstring_view string) noexcept
+{
+    unsigned int state = 0;
+    unsigned int progress = 0;
+
+    const auto parts = Utils::SplitString(string, L';');
+    unsigned int subParam = 0;
+
+    // For now, the only ConEmu action we support is setting the taskbar state/progress,
+    // which has a sub param value of 4
+    if (parts.size() < 1 || !Utils::StringToUint(til::at(parts, 0), subParam) || subParam != 4)
     {
-        failures += _PrivateModeParamsHelper(p, enable) ? 0 : 1; // increment the number of failures if we fail.
+        return false;
     }
-    return failures == 0;
+
+    if (parts.size() >= 2)
+    {
+        // A state parameter is defined, parse it out
+        const auto stateSuccess = Utils::StringToUint(til::at(parts, 1), state);
+        if (!stateSuccess)
+        {
+            return false;
+        }
+        if (parts.size() >= 3)
+        {
+            // A progress parameter is also defined, parse it out
+            const auto progressSuccess = Utils::StringToUint(til::at(parts, 2), progress);
+            if (!progressSuccess)
+            {
+                return false;
+            }
+        }
+    }
+
+    if (state > TaskbarMaxState)
+    {
+        // state is out of bounds, return false
+        return false;
+    }
+    if (progress > TaskbarMaxProgress)
+    {
+        // progress is greater than the maximum allowed value, clamp it to the max
+        progress = TaskbarMaxProgress;
+    }
+    return _terminalApi.SetTaskbarProgress(state, progress);
 }
 
 // Routine Description:
 // - Support routine for routing private mode parameters to be set/reset as flags
 // Arguments:
-// - params - array of params to set/reset
+// - param - mode parameter to set/reset
 // - enable - True for set, false for unset.
 // Return Value:
 // - True if handled successfully. False otherwise.
@@ -468,8 +538,7 @@ bool TerminalDispatch::SoftReset() noexcept
     //     success = _pConApi->SetConsoleOutputCP(_initialCodePage.value()) && success;
     // }
 
-    const auto opt = DispatchTypes::GraphicsOptions::Off;
-    success = SetGraphicsRendition({ &opt, 1 }) && success; // Normal rendition.
+    success = SetGraphicsRendition({}) && success; // Normal rendition.
 
     // // Reset the saved cursor state.
     // // Note that XTerm only resets the main buffer state, but that
